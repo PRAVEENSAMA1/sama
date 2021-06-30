@@ -1,0 +1,503 @@
+
+
+---------can generation -----------------------
+
+public class GenerateCANID {
+
+    public static final String ERROR_INDICATOR = "Error:";
+
+    public static final int NUMBER_OF_GENERATION_ATTEMPTS = 5;
+    public static final Logger LOG = Logger.getLogger(GeneratePCANDao.class);
+    /**
+     * Generates next can id
+     * @param inputId
+     * @param maxSize
+     * @return
+     */
+
+    public static synchronized String getNextCANId ( String inputId, int maxSize ,String driver, String url, String userid, String password) {
+         String  outputId;
+        outputId = generateNextCANId(inputId, maxSize,driver, url, userid, password);
+        return outputId;
+    }
+
+    private static synchronized String generateNextCANId ( String inputValue, int maxSize,String driver, String url, String userid, String password ) {
+        String outputId = "";
+        Connection con = null;
+        try {
+           // con=DbConnectionJndi.getJNDIConnection();
+            con=DbConnectionJndi.getDBConnection(driver, url, userid, password);
+            con.setAutoCommit(false);
+            String lastIdString = getCANId(con);
+            int maxLoop = 0;
+            boolean nextIdGenerated = false;
+            while (maxLoop++ < NUMBER_OF_GENERATION_ATTEMPTS) {
+                lastIdString = PCANUtils.nextCan(lastIdString, 7);
+                updatePCANLastId("PCAN", lastIdString,con);
+                outputId = lastIdString;
+                nextIdGenerated = true;
+                break;
+            }
+            // }
+
+            if (!nextIdGenerated) {
+                outputId = ERROR_INDICATOR + " Failed to generate PCAN id, because of number of attempts is exceeded - " +
+                           NUMBER_OF_GENERATION_ATTEMPTS;
+                // dbRollbackNoException();
+            }
+        } catch (SQLException e) {
+            LOG.error("Failed to get next PCAN ID because error on DB side", e);
+            outputId = ERROR_INDICATOR + " " + e.getMessage();
+            // dbRollbackNoException();
+        } catch (Exception e) {
+            LOG.error("Failed to get next PCAN ID", e);
+            outputId = ERROR_INDICATOR + " " + e.getMessage();
+            // dbRollbackNoException();
+        }finally{
+            DbConnectionJndi.closeConnection(con);
+        }
+        return outputId;
+    }
+
+    private static synchronized void   updatePCANLastId ( String idType, String id, Connection con ) throws SQLException {
+        PreparedStatement statement = null;
+        SimpleDateFormat  sdf  = new SimpleDateFormat("dd-M-yyyy hh:mm:ss SSS");
+      // LOG.info("About to fire a query UPDATE ETL_UTIL.CAN_LAST_ID  SET LAST_ID_USED = ?, LAST_UPDATE_DATE = CURRENT TIMESTAMP" +
+        //    "  WHERE ID_TYPE ="+sdf.format(new Date()));
+        String updateQuery="UPDATE ETL_UTIL.CAN_LAST_ID  SET LAST_ID_USED = ?, LAST_UPDATE_DATE = CURRENT TIMESTAMP" +
+            "  WHERE ID_TYPE = ?";
+      //  LOG.info("About to fire a query INSERT INTO ETL_UTIL.CAN_LAST_ID "+sdf.format(new Date()));
+        String insertQuery="INSERT INTO ETL_UTIL.CAN_LAST_ID (ID_TYPE, LAST_ID_USED, LAST_UPDATE_DATE) " +
+            "VALUES (?,?, CURRENT TIMESTAMP)";
+       
+            statement = con.prepareStatement(updateQuery);
+            statement.setString(1,id);
+            statement.setString(2,idType);
+            int counter = statement.executeUpdate();
+            
+            DbConnectionJndi.closeStatement(null, statement);
+            if (counter < 1) {
+                statement = con.prepareStatement(insertQuery);
+                statement.setString(1,idType);
+                statement.setString(2,id);
+                 statement.executeUpdate();
+                 DbConnectionJndi.closeStatement(null, statement);
+                
+            }
+            
+            con.commit();
+            //LOG.info("End of updatePCAnLast method "+sdf.format(new Date()));
+
+    }
+
+
+private static synchronized String getCANId (Connection con) throws SQLException {
+        String lastId = "";
+       
+        SimpleDateFormat  sdf  = new SimpleDateFormat("dd-M-yyyy hh:mm:ss SSS");
+        long timeinMilis= System.currentTimeMillis();
+        String junkParameter=String.valueOf(timeinMilis);
+       LOG.info("About to fire a query Select LAST_ID_USED from ETL_UTIL.CAN_LAST_ID WITH UR"+sdf.format(new Date()));
+       System.out.println("About to fire a query Select LAST_ID_USED from ETL_UTIL.CAN_LAST_ID WITH UR"+sdf.format(new Date()));
+        String query = "Select LAST_ID_USED from ETL_UTIL.CAN_LAST_ID  WITH UR "; // ETL_UTIL.CAN_LAST_ID
+       
+        PreparedStatement statement = null;
+        ResultSet resultSet=null;
+        try {
+            statement = con.prepareStatement(query);
+          //  statement.setString(1, junkParameter);
+            resultSet = statement.executeQuery();
+            if (resultSet.next()) {
+                 lastId = resultSet.getString(1);
+               
+            }
+        } finally {
+            DbConnectionJndi.closeStatement(resultSet, statement);
+        }
+       
+        return lastId;
+    }
+}
+
+----------------------------------------------------------------------------
+
+
+
+/**
+ * User exit implementation sample.  
+ * <p/>
+ */
+public class CustomerMergeHandler extends AbstractBaseOperationPlugin implements
+  IMergeOperationPlugin {
+
+ private static Logger mLogger = Logger.getLogger(CustomerMergeHandler.class);
+ 
+ String rowidObject = null;
+ String typeCode = null;
+ String systemName = null;
+ String usDotNumber=null;
+
+ public OperationResult beforeEverything(BDDObject mergeTarget,
+   List<BDDObject> sourceRecords) {
+
+  mLogger.info("IDD UserExits : merge customermergeHandler.beforeEverything()");
+ 
+        IDDHelper.displayIDDObject(mergeTarget);
+
+        mLogger.info("System Columns ----------------------");
+        for (BDDObject systemColumn : sourceRecords) {
+            try {
+                mLogger.info(1 + " : " + systemColumn.getSystemColumns());
+                mLogger.info(2 + " : " + systemColumn.getRowId());
+                //mLogger.info(3+":"+systemColumn.get);
+                mLogger.info(3 + " : " + systemColumn.getColumns());
+                mLogger.info(4 + " : " + systemColumn.getValue("C_BO_PARTY|CUST_TYPE"));
+                mLogger.info(5 + " : " + systemColumn.getChildren("Address"));
+
+
+} catch (Exception e) {
+                mLogger.info(systemColumn + " : ");
+}
+        }
+        return OperationResult.OK;    }
+
+
+ public OperationResult afterEverything(BDDObject mergeTarget,
+   List<BDDObject> sourceRecords) {
+  mLogger.info("IDD UserExits : merge customermergeHandler.afterEverything()");
+
+         
+  return OperationResult.OK;
+ }
+
+ public OperationResult afterMerge(BDDObject mergeTarget,List<BDDObject> sourceRecords) {
+     IDDHelper.displayIDDObject(mergeTarget);
+     
+     SiperianClient lSiperianClient = null;
+  SearchQueryResponse searchQueryResponse = null;
+  Long startTime = System.currentTimeMillis();
+  mLogger.info("Start time in CustomerMrgeHandler"+Calendar.getInstance().getTime());
+
+  try {
+   lSiperianClient = (SiperianClient) SiperianClientPool.getInstance().borrowObject();
+  
+  mLogger.info("IDD UserExits : merge customermergeHandler.aftermerge()");
+  
+
+  String custAccountNumber = (String) mergeTarget.getValue(IDDConstants.BDD_SAC_CUST_ACCT_NUMBER);
+     String rowidObject = (String) mergeTarget.getValue(IDDConstants.PARTY_ROWID_OBJ);
+  
+  mLogger.info("custAccountNumber value" + custAccountNumber);
+  mLogger.info("rowid_object" + rowidObject);
+
+  
+  Map<String, String> matchedAddresMap = new HashMap<String, String>();
+
+  Map<String, String> matchedPhoneMap = new HashMap<String, String>();
+
+  Map<String, String> matchedElectronicAddressMap = new HashMap<String, String>();
+
+  Map<String, String> matchedLegacyMap = new HashMap<String, String>();
+  
+  Map<String, String> matchedUSDotDetailsMap = new HashMap<String, String>();
+  
+  Set<String> matchedCRMDetailsSet = new HashSet<String>(); 
+
+
+  try {
+   
+   searchQueryResponse = getCompleteDeatilsForMatch(rowidObject,lSiperianClient);
+   mLogger.info("Search Query Response");
+
+   if (BaseHelper.isSearchQueryResponseValid(searchQueryResponse)) {
+
+    mLogger.info("lSearchQueryResponse Size: "+ searchQueryResponse.getRecords().size());
+    
+    String addressList = null;
+    String phoneList=null;
+    String legacyList=null;
+    String elecAddressList=null;
+    String usDotDetailsList=null;
+    Record record =null;
+    
+    for (Object recordObj : searchQueryResponse.getRecords()) {
+     
+      record = (Record) recordObj;
+     //address iterates
+      rowidObject = BaseHelper.getFieldValueAsString(record, IDDConstants.COL_ADDR_ROWID_OBJECT);
+      typeCode = BaseHelper.getFieldValueAsString(record, IDDConstants.COL_ADDR_ADDR_TYPE_CODE);
+      systemName = BaseHelper.getFieldValueAsString(record, IDDConstants.COL_ADDR_SYS_NAME);
+      
+      addressList = matchedAddresMap.put(typeCode + "~"+ systemName, rowidObject);
+     
+     if (addressList != null) {
+      matchedAddresMap.put(typeCode + "~" + systemName,addressList + "," + rowidObject);
+     }
+     
+     //Phone iterates
+     rowidObject = BaseHelper.getFieldValueAsString(record, IDDConstants.COL_PHONE_ROWID_OBJECT);
+     typeCode = BaseHelper.getFieldValueAsString(record, IDDConstants.COL_PHONE_TYPE_CODE);
+     systemName = BaseHelper.getFieldValueAsString(record, IDDConstants.COL_PHONE_SYS_NAME);
+      
+      phoneList = matchedPhoneMap.put(typeCode + "~"+ systemName, rowidObject);
+      
+
+      if (phoneList != null) {
+       matchedPhoneMap.put(typeCode + "~" + systemName,phoneList + "," + rowidObject);
+      }
+
+      
+      //ElecAddress iterates
+      rowidObject = BaseHelper.getFieldValueAsString(record, IDDConstants.COL_ELECADDRESS_ROWID_OBJECT);
+      /*typeCode = BaseHelper.getFieldValueAsString(record, IDDConstants.COL_ELECADDR_ADDR_TYPE_CODE);*/
+      systemName = BaseHelper.getFieldValueAsString(record, IDDConstants.COL_ELECADDR_SYS_NAME);
+      
+       elecAddressList = matchedElectronicAddressMap.pu
+
+
+
+
+08:44
+
+swetha to Everyone
+
+********************
+
+
+
+
+08:45
+
+swetha to Everyone
+
+elecAddressList = matchedElectronicAddressMap.put(/*typeCode + "~"+*/ systemName, rowidObject);
+      
+
+       if (elecAddressList != null) {
+        matchedElectronicAddressMap.put(/*typeCode + "~" + */systemName,elecAddressList + "," + rowidObject);
+       }
+       
+
+       //Legacy iterates
+       rowidObject = BaseHelper.getFieldValueAsString(record, IDDConstants.COL_LEGACY_ROWID_OBJECT);
+      /* typeCode = BaseHelper.getFieldValueAsString(record, IDDConstants.COL_lEGACY_TYPE_CODE);*/
+       systemName = BaseHelper.getFieldValueAsString(record, IDDConstants.COL_LEGACY_SYS_NAME);
+       
+        legacyList = matchedLegacyMap.put(/*typeCode + "~" +*/systemName, rowidObject);
+       
+
+        if (legacyList != null) {
+         matchedLegacyMap.put(/*typeCode + "~" + */systemName,legacyList + "," + rowidObject);
+        }
+        // US DOT details iterate
+        
+        rowidObject = BaseHelper.getFieldValueAsString(record, IDDConstants.COL_USDOT_ROWID_OBJECT);
+        usDotNumber = BaseHelper.getFieldValueAsString(record, IDDConstants.COL_USDOT_NUMBER);
+        usDotDetailsList= matchedUSDotDetailsMap.put(usDotNumber,rowidObject);
+        if(usDotDetailsList !=null){
+           matchedUSDotDetailsMap.put(usDotNumber, usDotDetailsList + ","+rowidObject);
+            
+        }
+        
+        // CRM DEtails Iterate
+        
+        rowidObject = BaseHelper.getFieldValueAsString(record, IDDConstants.COL_CRMDETAILS_ROWID_OBJECT);
+        matchedCRMDetailsSet.add(rowidObject);
+
+    }
+  if (BaseHelper.isNotNull(matchedAddresMap)){
+      mLogger.info("matchedAddresMap is not null"+matchedAddresMap);
+    callMergeList(matchedAddresMap, lSiperianClient, IDDConstants.SIP_ADDRESS_OBJECT);
+  }
+  if (BaseHelper.isNotNull(matchedPhoneMap)){
+            mLogger.info("matchedPhoneMap is not null"+matchedPhoneMap);
+
+    callMergeList(matchedPhoneMap, lSiperianClient, IDDConstants.SIP_PHONE_OBJECT);
+    }
+  if (BaseHelper.isNotNull(matchedElectronicAddressMap)){
+            
+            mLogger.info("matchedElectronicAddressMap is not null"+matchedElectronicAddressMap);
+
+    callMergeList(matchedElectronicAddressMap, lSiperianClient, IDDConstants.SIP_ELECADDRESS_OBJECT);
+  }
+  if (BaseHelper.isNotNull(matchedLegacyMap)){
+            mLogger.info("matchedLegacyMap is not null"+matchedLegacyMap);
+
+    callMergeList(matchedLegacyMap, lSiperianClient, IDDConstants.SIP_LEGACY_OBJECT);
+  }
+  if(BaseHelper.isNotNull(matchedUSDotDetailsMap)){
+      mLogger.info("matchedUSDotDetailsMap is not null"+matchedUSDotDetailsMap);
+
+            callMergeList(matchedUSDotDetailsMap, lSiperianClient, IDDConstants.SIP_USDOT_OBJECT);
+
+  }
+  if (BaseHelper.isNotNull(matchedCRMDetailsSet)){
+      mLogger.info("matchedCRMDetailsSet is not null"+matchedCRMDetailsSet);
+      
+      callMergeSet(matchedCRMDetailsSet, lSiperianClient, IDDConstants.SIP_CRM_DETAILS_OBJECT);
+      
+  }
+
+   } else {
+
+    mLogger.info(String.format(MdmConstants.ERR_PARTY_KEY_INVALID,rowidObject));
+    return new OperationResult(new OperationExecutionError(
+      IDDConstants.BDD_SIP_GENERIC_ERR, new String[] {
+      mergeTarget.getObjectName(),String.format(IDDConstants.ERR_CHILD_MERGE, rowidObject)},
+      getLocalizationGate()));
+    
+
+   }
+  } catch (Exception e) {
+
+   e.printStackTrace();
+  }
+
+} catch (Exception e) {
+
+ e.printStackTrace();
+}
+finally {
+   
+   if (lSiperianClient != null) {
+    
+     try {
+      SiperianClientPool.getInstance().returnObject(
+        lSiperianClient);
+     } catch (Exception e) {
+     
+      e.printStackTrace();
+     }
+    
+    }}
+   Long endTime= System.currentTimeMillis();
+   mLogger.info("End time in CustomerMegeHandler"+Calendar.getInstance().getTime());
+   mLogger.info("Total Time Takens to execute  CustomerMegeHandler class "+(endTime-startTime) +"milliseconds");
+
+  return OperationResult.OK;
+ }
+
+ private void callMergeList(Map<String,String> matchedEntityMap,SiperianClient lSiperianClient,String tableName ){
+  try {
+            ArrayList<String> matchedList=null;
+            for (String value : matchedEntityMap.values()) {
+             mLogger.info("Merge Starts for "+value);
+             if (value.contains(",")) {
+              matchedList=getMatchedList(value);
+              mLogger.info(" matchedList  "+matchedList);
+              if(matchedList.size()>1){
+               mLogger.info(" tableName  "+tableName);
+               multiMergeList(matchedList ,tableName, lSiperianClient);
+              }
+              mLogger.info("Merge Completed for "+value);
+              matchedList=null;
+             }
+            }
+        } catch (Exception e) {
+            // TODO Auto-generated catch block
+            mLogger.info("Exception Occured in callMergeList "+"Table name "+tableName+"   "  +e.getMessage());
+        }
+ }
+private void callMergeSet(Set<String> matchedEntitySet,SiperianClient lSiperianClient,String tableName ){
+        try {
+            ArrayList<String> matchedList= new ArrayList<String>();
+            for (String value : matchedEntitySet) {
+                mLogger.info("Merge Starts for "+value);
+                    //matchedList=
+                    matchedList.add(value);
+                    mLogger.info("MatchList size "+matchedList.size());
+            }
+                    mLogger.info(" matchedList  "+matchedList);
+                    if(matchedList.size()>1){
+                        mLogger.info(" tableName  "+tableName);
+                        multiMergeList(matchedList ,tableName, lSiperianClient);
+                    }
+                   mLogger.info("Merge Completed for" +matchedList);
+                    matchedList=null;
+               
+                } catch (Exception e) {
+            // TODO Auto-generated catch block
+            mLogger.info("Exception Occured in callMergeList "+"Table name "+tableName+"   "  +e.getMessage());
+        }
+    }
+ private ArrayList<String> getMatchedList(String matchedString){
+  ArrayList<String> matchedList=new ArrayList<String>();
+  String[] matchedArray = matchedString.split(",");
+  for(String matchedValue : matchedArray){
+   if(!matchedList.contains(matchedValue)){
+    matchedList.add(matchedValue);
+   }
+  }
+  return matchedList;
+  
+ }
+ private static void multiMergeList(ArrayList<String> matchedList,String tableName,SiperianClient lSiperianClient){
+  ArrayList<RecordKey> recordKeys = new ArrayList<RecordKey> ();
+  
+  MultiMergeRequest multiMergeRequest = new MultiMergeRequest();
+  Record record= new Record();
+   for(String rowId:matchedList ){
+    recordKeys.add(RecordKey.rowid(rowId));
+   }
+  record.setSiperianObjectUid(SiperianObjectType.BASE_OBJECT.makeUid(tableName));
+  multiMergeRequest.setRecordKeyList (recordKeys);
+  multiMergeRequest.setRecord (record);
+        mLogger.info("mergeRequest.getSourceRecordKey()"+multiMergeRequest.getRecordKeyList());
+  mLogger.info("mergeRequest.getTargetRecordKey()"+multiMergeRequest.getSiperianObjectUid());
+  
+  MultiMergeResponse multiMergeResponse = (MultiMergeResponse) lSiperianClient.process(multiMergeRequest);
+
+  mLogger.info("mergeResponse.getMessage()"+multiMergeResponse.getMessage());
+
+ }
+
+ public OperationResult beforeMerge(BDDObject mergeTarget,
+   List<BDDObject> sourceRecords) {
+
+  mLogger.info("IDD UserExits : merge customermergeHandler.beforemerge()");
+  
+        IDDHelper.displayIDDObject(mergeTarget);
+        mLogger.info("System Columns ----------------------");
+        for (BDDObject systemColumn : sourceRecords) {
+            try {
+                mLogger.info(1 + " : " + systemColumn.getSystemColumns());
+                mLogger.info(2 + " : " + systemColumn.getRowId());
+                //mLogger.info(3+":"+systemColumn.get);
+                mLogger.info(3 + " : " + systemColumn.getColumns());
+                mLogger.info(4 + " : " + systemColumn.getValue("C_BO_PARTY|CUST_TYPE"));
+} catch (Exception e) {
+                mLogger.info(systemColumn + " : ");
+}
+        }
+  return OperationResult.OK;
+ }
+
+ public OperationType getOperationType() {
+  return OperationType.MERGE_OPERATION;
+ }
+
+ private static SearchQueryResponse getCompleteDeatilsForMatch(
+   String rowidObject, SiperianClient pSiperianClient)
+   throws Exception {
+
+  // Adding filter criteria
+
+  mLogger.info("inside getCompleteDeatilsForMatch : value of getCompleteDeatilsForMatch"
+    + rowidObject);
+  FilterCriteria lFilterCriteria = new FilterCriteria();
+  
+  lFilterCriteria.addEquals(IDDConstants.CUSTOMER_ROWID,rowidObject);
+  
+  mLogger.info("getCompleteDeatilsForMatch.filetrCriteria [ "+ lFilterCriteria.toString() + " ]");
+  SearchQueryResponse lSearchQueryResponse = null;
+
+  // call package PKG_GET_PARTY_CMPLT_DTLS with above criteria
+  lSearchQueryResponse = TransactionHelper.doSearchQuery(IDDConstants.PKG_GET_PARTY_CMPLT_DTLS,lFilterCriteria.toString(), pSiperianClient);
+  mLogger.info("lSearchQueryResponse.getMessage()"+ lSearchQueryResponse.getMessage());
+  mLogger.info("lSearchQueryResponse.getRecords()"+ lSearchQueryResponse.getRecords());
+  return lSearchQueryResponse;
+
+ }
+
+}
+
